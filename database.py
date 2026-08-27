@@ -10,7 +10,7 @@ Author(s): James Meyers (james.meyers@nexteer.com)
 import logging
 
 # Third Party Imports
-import mysql.connector
+import mssql_python as mssql
 import time
 
 # Local Imports
@@ -19,57 +19,53 @@ import config
 # Setup logger
 logger = logging.getLogger(__name__)
 
-def create_db_connection(username: str = None, password: str = None) -> mysql.connector.connection.MySQLConnection:
+def create_db_connection() -> mssql.Connection:
     '''
     Establish a connection to the MySQL server with the username and password arguments.
-    Falls back to config settings if username/password are not provided.
-    Returns a MySQLConnection object if able to connect, otherwise it returns nothing.
+    Returns a mssql.Connection object if able to connect, otherwise it returns nothing.
     '''
-    user = username or config.SQL_USERNAME
-    pwd = password or config.SQL_PASSWORD
+
     try:
-        mydb = mysql.connector.connect(host=config.SQL_HOST, user=user, password=pwd, database=config.SQL_DATABASE, allow_local_infile=True)
+        mydb = mssql.connect(server=config.SQL_SERVER, database=config.SQL_DATABASE, uid=config.SQL_USERNAME, pwd=config.SQL_PASSWORD, encrypt="yes")
         return mydb
     except Exception as e:
         logger.error("Error occured when attempting to connect to the database. Error: ", e)
         return
 
-def insert_logs(mydb: mysql.connector.connection.MySQLConnection, logs: list[dict], table: str, adom: str):
+def insert_logs(mydb: mssql.Connection, logs: list[dict], table: str, adom: str):
     '''
     Inserts logs into the provided database and table.
     Saves logs to a temp csv file which gets sent to the server to speed up insertion.
     '''
 
     if mydb is None or not logs:
+        logger.error(f"Unable to log {table} for {adom} due to no logs or connection")
         return
 
     cursor = mydb.cursor()
 
-    # Map internal summary table names to their SQL table name, column list, and value placeholders
+    # Map internal summary table names to their SQL table name and column list
     sql_statements = {
         "traffic_summary": ("traffic_summary",
-                            "(interval_start, adom, devname, policyid, policyname, app, appcat, action, srcintf, dstintf, sessions, sentbyte, rcvdbyte, sentpkt, rcvdpkt)",
-                            "(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"),
+                            "(interval_start, adom, devname, policyid, policyname, app, appcat, action, srcintf, dstintf, sessions, sentbyte, rcvdbyte, sentpkt, rcvdpkt)"),
         "source_ip_summary": ("source_ip_summary", 
-                              "(interval_start, adom, devname, srcip, occurences, sentbyte, rcvdbyte)",
-                              "(%s, %s, %s, %s, %s, %s, %s)"),
+                              "(interval_start, adom, devname, srcip, occurences, sentbyte, rcvdbyte)"),
         "destination_count_summary": ("destination_count_summary", 
-                                      "(interval_start, adom, devname, unique_destination_count)",
-                                      "(%s, %s, %s, %s)"),
+                                      "(interval_start, adom, devname, unique_destination_count)"),
         "top_destination_summary_byte": ("top_destination_summary_byte",
-                                         "(interval_start, adom, devname, dstip, occurences, sentbyte, rcvdbyte)",
-                                         "(%s, %s, %s, %s, %s, %s, %s)"),
+                                         "(interval_start, adom, devname, dstip, occurences, sentbyte, rcvdbyte)"),
         "top_destination_summary_occurence": ("top_destination_summary_occurence",
-                                              "(interval_start, adom, devname, dstip, occurences, sentbyte, rcvdbyte)",
-                                              "(%s, %s, %s, %s, %s, %s, %s)")
+                                              "(interval_start, adom, devname, dstip, occurences, sentbyte, rcvdbyte)")
     }
 
     # Build parameterized SQL query string and transform dict records into tuple rows matching column order
-    sql = f"INSERT INTO {sql_statements[table][0]} {sql_statements[table][1]} VALUES {sql_statements[table][2]}"
-    cols = [c.strip() for c in sql_statements[table][1].strip("()").split(",")]
+    table_name, col_str = sql_statements[table]
+    cols = [c.strip() for c in col_str.strip("()").split(",")]
+    placeholders = ", ".join(["?"] * len(cols))
+    sql = f"INSERT INTO {table_name} {col_str} VALUES ({placeholders})"
     rows = [tuple(log.get(col) for col in cols) for log in logs]
 
-    # Insert in batches of 1,000 rows with exponential backoff retries for MySQL lock wait timeouts (Error 1205)
+    # Insert in batches of 1,000 rows with exponential backoff retries for SQL Server lock wait timeouts/deadlocks (Error 1205)
     BATCH_SIZE = 1000
     MAX_RETRIES = 3
 
@@ -81,9 +77,9 @@ def insert_logs(mydb: mysql.connector.connection.MySQLConnection, logs: list[dic
                 cursor.executemany(sql, batch)
                 mydb.commit()
                 break
-            except mysql.connector.errors.DatabaseError as e:
+            except mssql.Error as e:
                 attempt += 1
-                if getattr(e, 'errno', None) == 1205 and attempt <= MAX_RETRIES:
+                if (getattr(e, 'errno', None) == 1205 or "1205" in str(e)) and attempt <= MAX_RETRIES:
                     wait = 2 ** attempt
                     logger.warning(f"Lock wait timeout (1205) inserting to {table} for {adom}, retry {attempt}/{MAX_RETRIES} after {wait}s")
                     time.sleep(wait)
@@ -94,12 +90,12 @@ def insert_logs(mydb: mysql.connector.connection.MySQLConnection, logs: list[dic
 
     logger.info(f"Inserted logs for {adom}, in table {table} (total rows: {len(rows)})")
 
-def remove_logs(mydb: mysql.connector.connection.MySQLConnection, cutoff_date: str, table: str):
+def remove_logs(mydb: mssql.Connection, cutoff_date: str, table: str):
     '''
-    Deletes logs from the specified MySQL DB table where any time in a log is before the cutoff_date
+    Deletes logs from the specified SQL Server DB table where interval_start is before the cutoff_date
     '''
     cursor = mydb.cursor()
-    sql = f"DELETE FROM {table} WHERE date < '{cutoff_date}'"
+    sql = f"DELETE FROM {table} WHERE interval_start < '{cutoff_date}'"
 
     cursor.execute(sql)
     mydb.commit()

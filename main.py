@@ -81,12 +81,15 @@ def process_adom(selected_ADOM: str, start_datetime: str, end_datetime: str, arg
     # ---------------------------- #
 
     # Connect to MySQL and insert all summary log tables
-    mydb = database.create_db_connection(config.SQL_USERNAME, config.SQL_PASSWORD)
-    database.insert_logs(mydb, traffic_summary_logs, "traffic_summary", selected_ADOM)
-    database.insert_logs(mydb, source_ip_summary_logs, "source_ip_summary", selected_ADOM)
-    database.insert_logs(mydb, destination_count_summary, "destination_count_summary", selected_ADOM)
-    database.insert_logs(mydb, top_destination_occurence, "top_destination_summary_occurence", selected_ADOM)
-    database.insert_logs(mydb, top_destination_bytes, "top_destination_summary_byte", selected_ADOM)
+    mydb = database.create_db_connection()
+    try:
+        database.insert_logs(mydb, traffic_summary_logs, "traffic_summary", selected_ADOM)
+        database.insert_logs(mydb, source_ip_summary_logs, "source_ip_summary", selected_ADOM)
+        database.insert_logs(mydb, destination_count_summary, "destination_count_summary", selected_ADOM)
+        database.insert_logs(mydb, top_destination_occurence, "top_destination_summary_occurence", selected_ADOM)
+        database.insert_logs(mydb, top_destination_bytes, "top_destination_summary_byte", selected_ADOM)
+    finally:
+        mydb.close()
 
 def run_pipeline(start_datetime: str, end_datetime: str, args: argparse.Namespace) -> None:
     '''

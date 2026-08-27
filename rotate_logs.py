@@ -31,13 +31,13 @@ def main():
     # Process command line args
     parser = argparse.ArgumentParser(description='Deletes FAZ logs from the MySQL DB before the cutoff date')
     parser.add_argument("-d", "--days", type=int, default=1, help="Number of days behind the cutoff date will be (default: 1)")
-    parser.add_argument("table", choices=[0, 1, 2, 3, 4, 5, 6], help="Select table to delete logs from. | 0: All | 1: Dest_Count_Sum | 2: Src_IP_Sum | 3: Top_Dest_Sum_Byte | 4: Top_Dest_Sum_Occur | 5: Traffic_Summary |", type=int)
+    parser.add_argument("table", choices=[0, 1, 2, 3, 4, 5], help="Select table to delete logs from. | 0: All | 1: Dest_Count_Sum | 2: Src_IP_Sum | 3: Top_Dest_Sum_Byte | 4: Top_Dest_Sum_Occur | 5: Traffic_Summary |", type=int)
     args = parser.parse_args()
 
     selected_table = TABLES[args.table]
     cutoff_time = args.days
     cutoff_date = (datetime.now() - timedelta(days=cutoff_time)).strftime("%Y-%m-%d")
-    mydb = database.create_db_connection(config.SQL_USERNAME, config.SQL_PASSWORD)
+    mydb = database.create_db_connection()
 
     if selected_table == "All":
         root.warning(f"Deleting logs before: {cutoff_date}, from all tables")

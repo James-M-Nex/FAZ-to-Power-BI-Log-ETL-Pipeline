@@ -252,4 +252,4 @@ To ensure continuous data feed into Power BI, set up a recurring task every 10 m
 
 - **Author:** James Meyers (`james.meyers@nexteer.com`)
 - **Project:** FAZ Dashboard / Power BI Connector Pipeline
-- **If Your Bored** Try adding the `-e` flag
+- **If Your Bored:** Try adding the `-e` flag

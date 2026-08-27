@@ -109,24 +109,12 @@ def aggreagate_log(all_logs: list[dict], adom: str, interval_start: str) -> tupl
             log.get("dstintf")
         )
 
-        srcip = log.get("srcip")
+        srcip = log.get("srcip") or "Empty"
 
-        if srcip:
-            source_ip_key = (
-                srcip,
-                log.get("devname")
-            )
-
-            if source_ip_key not in source_ip_buckets:
-                source_ip_buckets[source_ip_key] = {
-                    "interval_start": interval_start,
-                    "adom": adom,
-                    "devname": log.get("devname"),
-                    "srcip": srcip,
-                    "occurences": 0,
-                    "sentbyte": 0,
-                    "rcvdbyte": 0
-                }
+        source_ip_key = (
+            srcip,
+            log.get("devname")
+        )
 
         destination_ip_key = (
             log.get("dstip"),
@@ -162,6 +150,17 @@ def aggreagate_log(all_logs: list[dict], adom: str, interval_start: str) -> tupl
                 "adom": adom,
                 "devname": log.get("devname"),
                 "dstip": log.get("dstip"),
+                "occurences": 0,
+                "sentbyte": 0,
+                "rcvdbyte": 0
+            }
+
+        if source_ip_key not in source_ip_buckets:
+            source_ip_buckets[source_ip_key] = {
+                "interval_start": interval_start,
+                "adom": adom,
+                "devname": log.get("devname"),
+                "srcip": srcip,
                 "occurences": 0,
                 "sentbyte": 0,
                 "rcvdbyte": 0
