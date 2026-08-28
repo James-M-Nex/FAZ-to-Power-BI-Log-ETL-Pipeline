@@ -49,7 +49,7 @@ def insert_logs(mydb: mssql.Connection, logs: list[dict], table: str, adom: str)
         "traffic_summary": ("traffic_summary",
                             "(interval_start, adom, devname, policyid, policyname, app, appcat, action, srcintf, dstintf, sessions, sentbyte, rcvdbyte, sentpkt, rcvdpkt)"),
         "source_ip_summary": ("source_ip_summary", 
-                              "(interval_start, adom, devname, srcip, occurences, sentbyte, rcvdbyte)"),
+                              "(interval_start, adom, devname, srcip, crlevel, threats, occurences, sentbyte, rcvdbyte)"),
         "destination_count_summary": ("destination_count_summary", 
                                       "(interval_start, adom, devname, unique_destination_count)"),
         "top_destination_summary_byte": ("top_destination_summary_byte",

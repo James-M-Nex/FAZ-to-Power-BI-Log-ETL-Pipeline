@@ -99,6 +99,8 @@ CREATE TABLE IF NOT EXISTS source_ip_summary (
     adom VARCHAR(30) NOT NULL,
     devname VARCHAR(60) NOT NULL,
     srcip VARCHAR(45),
+    crlevel VARCHAR(12),
+    threats VARCHAR(45),
     occurences INT,
     sentbyte BIGINT,
     rcvdbyte BIGINT,

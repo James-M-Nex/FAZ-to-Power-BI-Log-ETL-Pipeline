@@ -35,7 +35,9 @@ def normalize_and_filter(raw_logs: list[dict], r_flag: bool, n_flag: bool, adom:
         "srcintf",
         "dstintf",
         "policyname",
-        "devname"
+        "devname",
+        "crlevel",
+        "threats"
     )
 
     if not raw_logs:
@@ -109,11 +111,15 @@ def aggreagate_log(all_logs: list[dict], adom: str, interval_start: str) -> tupl
             log.get("dstintf")
         )
 
-        srcip = log.get("srcip") or "Empty"
+        srcip = log.get("srcip") or "None"
+
 
         source_ip_key = (
             srcip,
-            log.get("devname")
+            log.get("devname"),
+            log.get("crlevel") or "None",
+            log.get("threats") or "None"
+            
         )
 
         destination_ip_key = (
@@ -161,6 +167,8 @@ def aggreagate_log(all_logs: list[dict], adom: str, interval_start: str) -> tupl
                 "adom": adom,
                 "devname": log.get("devname"),
                 "srcip": srcip,
+                "crlevel": log.get("crlevel") or None,
+                "threats": log.get("threats") or None,
                 "occurences": 0,
                 "sentbyte": 0,
                 "rcvdbyte": 0
@@ -179,7 +187,6 @@ def aggreagate_log(all_logs: list[dict], adom: str, interval_start: str) -> tupl
         traffic_bucket["sessions"] += 1
         source_ip_bucket["occurences"] += 1
         destination_ip_bucket["occurences"] += 1
-
 
         traffic_bucket["sentbyte"] += int(log.get("sentbyte", 0) or 0)
         source_ip_bucket["sentbyte"] += int(log.get("sentbyte", 0) or 0)
