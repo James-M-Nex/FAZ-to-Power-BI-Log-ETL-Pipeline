@@ -1,5 +1,5 @@
 '''
-This script checks for logs where their date > currentdate - cutoff_time.
+This script checks for logs where their date is before the cut off date.
 If any logs are found this way they are removed from the MySQL server.
 This script should be run at a regular interval of 7 days via a task scheduler.
 Made: 7/31/26
@@ -15,7 +15,6 @@ from logging.handlers import RotatingFileHandler
 
 # Third Party Imports
 import database
-import config
 
 # Constants
 TABLES = ["All", "destination_count_summary", "source_ip_summary", "top_destination_summary_byte", "top_destination_summary_occurence", "traffic_summary"]
