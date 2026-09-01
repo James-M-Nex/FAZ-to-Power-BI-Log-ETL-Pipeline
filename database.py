@@ -35,7 +35,7 @@ def create_db_connection() -> mssql.Connection:
 def insert_logs(mydb: mssql.Connection, logs: list[dict], table: str, adom: str):
     '''
     Inserts logs into the provided database and table.
-    Saves logs to a temp csv file which gets sent to the server to speed up insertion.
+    Inserts in batches to avoid timeouts and overloading the server
     '''
 
     if mydb is None or not logs:
