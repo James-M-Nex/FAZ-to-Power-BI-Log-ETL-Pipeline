@@ -1,6 +1,6 @@
 # FAZ to Power BI Log ETL Pipeline
 
-An automated Python ETL (Extract, Transform, Load) pipeline designed to pull traffic logs from the **FortiAnalyzer (FAZ)** server via its JSONRPC API, normalize and aggregate the log data, and load it into a local **MySQL database**.
+An automated Python ETL (Extract, Transform, Load) pipeline designed to pull traffic logs from the **FortiAnalyzer (FAZ)** server via its JSONRPC API, normalize and aggregate the log data, and load it into a **Microsoft SQL Server (MSSQL) database**.
 
 This pipeline bridges FortiAnalyzer and **Power BI**, providing structured, aggregated network traffic metrics for high-performance Power BI reporting and dashboards.
 
@@ -11,8 +11,8 @@ This pipeline bridges FortiAnalyzer and **Power BI**, providing structured, aggr
 - **Multi-ADOM Parallel Processing:** Fetches and processes logs across multiple Administrative Domains (ADOMs): `Asia_Pacific`, `EMEA-SA`, `Labs`, `Mexico`, and `United_States`.
 - **Multithreaded Log Fetching:** Uses Python's `ThreadPoolExecutor` to fetch log pages concurrently from the FortiAnalyzer API.
 - **Data Normalization & Aggregation:** Extracts essential traffic log attributes and pre-aggregates raw data into summarized metrics (Traffic Summary, Source IP Summary, Unique Destination Counts, Top Destination IPs by bytes and occurrences) to minimize storage footprint and maximize Power BI query speed.
-- **MySQL Integration:** Dynamically inserts aggregated logs in batches with automated retry logic for handling lock wait timeouts.
-- **Database Indexing:** Pre-indexed MySQL tables for ultra-fast Power BI date range and regional filtering queries.
+- **MSSQL Integration:** Dynamically inserts aggregated logs in batches with automated retry logic for handling lock wait timeouts.
+- **Database Indexing:** Pre-indexed MSSQL tables for ultra-fast Power BI date range and regional filtering queries.
 - **Centralized Configuration:** Configurable via environment variables or central `config.py`.
 - **Log Maintenance & Retention:** Includes an automated log rotation tool (`rotate_logs.py`) to purge historical logs past a configured retention threshold.
 
@@ -27,7 +27,7 @@ This pipeline bridges FortiAnalyzer and **Power BI**, providing structured, aggr
 | **Expected Execution Time** | **~8:30 minutes** for a 10-minute fetch window (~85% of allotted interval) |
 | **Scaling Rule** | Runtime generally takes **~85% of the allotted time window** for different intervals |
 | **Python Version** | Python 3.10+ |
-| **Database** | MySQL Server 8.0+ (running locally or accessible over network) |
+| **Database** | Microsoft SQL Server (MSSQL) (running locally or accessible over network) |
 
 > [!IMPORTANT]
 > **Memory & Execution Notice:** Because log records are held in memory during extraction and aggregation before DB insertion, ensure the host machine has at least **6 to 8 GB of available RAM**. When running on a 10-minute recurring schedule, allow ~8.5 minutes for execution completion before starting the next interval.
@@ -41,7 +41,7 @@ This pipeline bridges FortiAnalyzer and **Power BI**, providing structured, aggr
 ├── main.py            # Primary ETL pipeline orchestrator & CLI entry point
 ├── faz_fetcher.py     # FortiAnalyzer JSONRPC API authentication, polling & multi-threaded fetcher
 ├── transform.py       # Log normalization, field extraction & bucket aggregation logic
-├── database.py        # MySQL database connection management & batch insertion engine
+├── database.py        # MSSQL database connection management & batch insertion engine
 ├── rotate_logs.py     # Automated log purging utility for old database records
 ├── config.py          # Centralized configuration module for credentials and server settings
 ├── utilities/         # Debugging & validation tools
@@ -60,19 +60,21 @@ This pipeline bridges FortiAnalyzer and **Power BI**, providing structured, aggr
 Ensure Python 3.10+ is installed. Install the required third-party libraries:
 
 ```bash
-pip install requests urllib3 mysql-connector-python
+pip install requests urllib3 mssql-python
 ```
 
-### 2. MySQL Database Setup with Indexing
-Create the database and required tables on your MySQL server. Indexes on `interval_start`, `adom`, and `devname` ensure Power BI dashboards load instantly regardless of table size.
+### 2. MSSQL Database Setup with Indexing
+Create the database and required tables on your MSSQL server. Indexes on `interval_start`, `adom`, and `devname` ensure Power BI dashboards load instantly regardless of table size.
 
 ```sql
-CREATE DATABASE IF NOT EXISTS faz_api_traffic_logs;
+CREATE DATABASE faz_api_traffic_logs;
+GO
 USE faz_api_traffic_logs;
+GO
 
 -- Traffic Summary Table
-CREATE TABLE IF NOT EXISTS traffic_summary (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE traffic_summary (
+    id INT IDENTITY(1,1) PRIMARY KEY,
     interval_start DATETIME NOT NULL,
     adom VARCHAR(30) NOT NULL,
     devname VARCHAR(60) NOT NULL,
@@ -87,14 +89,14 @@ CREATE TABLE IF NOT EXISTS traffic_summary (
     sentbyte BIGINT,
     rcvdbyte BIGINT,
     sentpkt BIGINT,
-    rcvdpkt BIGINT,
-    KEY idx_interval_adom (interval_start, adom),
-    KEY idx_devname (devname)
+    rcvdpkt BIGINT
 );
+CREATE INDEX idx_traffic_interval_adom ON traffic_summary (interval_start, adom);
+CREATE INDEX idx_traffic_devname ON traffic_summary (devname);
 
 -- Source IP Summary Table
-CREATE TABLE IF NOT EXISTS source_ip_summary (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE source_ip_summary (
+    id INT IDENTITY(1,1) PRIMARY KEY,
     interval_start DATETIME NOT NULL,
     adom VARCHAR(30) NOT NULL,
     devname VARCHAR(60) NOT NULL,
@@ -103,52 +105,52 @@ CREATE TABLE IF NOT EXISTS source_ip_summary (
     threats VARCHAR(45),
     occurences INT,
     sentbyte BIGINT,
-    rcvdbyte BIGINT,
-    KEY idx_interval_adom (interval_start, adom),
-    KEY idx_srcip (srcip)
+    rcvdbyte BIGINT
 );
+CREATE INDEX idx_srcip_interval_adom ON source_ip_summary (interval_start, adom);
+CREATE INDEX idx_srcip_srcip ON source_ip_summary (srcip);
 
 -- Destination Count Summary Table
-CREATE TABLE IF NOT EXISTS destination_count_summary (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE destination_count_summary (
+    id INT IDENTITY(1,1) PRIMARY KEY,
     interval_start DATETIME NOT NULL,
     adom VARCHAR(30) NOT NULL,
     devname VARCHAR(60) NOT NULL,
-    unique_destination_count INT,
-    KEY idx_interval_adom (interval_start, adom)
+    unique_destination_count INT
 );
+CREATE INDEX idx_destcount_interval_adom ON destination_count_summary (interval_start, adom);
 
 -- Top Destination Summary (by Byte Volume)
-CREATE TABLE IF NOT EXISTS top_destination_summary_byte (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE top_destination_summary_byte (
+    id INT IDENTITY(1,1) PRIMARY KEY,
     interval_start DATETIME NOT NULL,
     adom VARCHAR(30) NOT NULL,
     devname VARCHAR(60) NOT NULL,
     dstip VARCHAR(45),
     occurences INT,
     sentbyte BIGINT,
-    rcvdbyte BIGINT,
-    KEY idx_interval_adom (interval_start, adom),
-    KEY idx_dstip (dstip)
+    rcvdbyte BIGINT
 );
+CREATE INDEX idx_topdestbyte_interval_adom ON top_destination_summary_byte (interval_start, adom);
+CREATE INDEX idx_topdestbyte_dstip ON top_destination_summary_byte (dstip);
 
 -- Top Destination Summary (by Session Occurrences)
-CREATE TABLE IF NOT EXISTS top_destination_summary_occurence (
-    id INT AUTO_INCREMENT PRIMARY KEY,
+CREATE TABLE top_destination_summary_occurence (
+    id INT IDENTITY(1,1) PRIMARY KEY,
     interval_start DATETIME NOT NULL,
     adom VARCHAR(30) NOT NULL,
     devname VARCHAR(60) NOT NULL,
     dstip VARCHAR(45),
     occurences INT,
     sentbyte BIGINT,
-    rcvdbyte BIGINT,
-    KEY idx_interval_adom (interval_start, adom),
-    KEY idx_dstip (dstip)
+    rcvdbyte BIGINT
 );
+CREATE INDEX idx_topdestocc_interval_adom ON top_destination_summary_occurence (interval_start, adom);
+CREATE INDEX idx_topdestocc_dstip ON top_destination_summary_occurence (dstip);
 ```
 
 #### Why Indexes Matter for Power BI:
-Without indexes, MySQL must perform a **full table scan** (reading every single row in the database) to display metrics for a specific date range or region. With `KEY idx_interval_adom` and column-specific indexes, MySQL jumps directly to the matching rows, keeping Power BI query responses under a second.
+Without indexes, MSSQL must perform a **full table scan** (reading every single row in the database) to display metrics for a specific date range or region. With column and composite indexes, MSSQL jumps directly to the matching rows, keeping Power BI query responses under a second.
 
 ---
 
@@ -160,10 +162,10 @@ All settings and credentials are managed through `config.py`. You can override d
 | `FAZ_URL` | `#####` | FortiAnalyzer JSONRPC endpoint |
 | `FAZ_USERNAME` | `#####` | FortiAnalyzer API username |
 | `FAZ_PASSWORD` | `#####` | FortiAnalyzer API password |
-| `SQL_HOST` | `#####` | MySQL server hostname / IP |
-| `SQL_USERNAME` | `#####` | MySQL user account |
-| `SQL_PASSWORD` | `######` | MySQL password |
-| `SQL_DATABASE` | `######` | Target MySQL database name |
+| `SQL_SERVER` | `#####` | MSSQL server hostname / IP |
+| `SQL_USERNAME` | `#####` | MSSQL user account |
+| `SQL_PASSWORD` | `######` | MSSQL password |
+| `SQL_DATABASE` | `######` | Target MSSQL database name |
 
 ---
 
@@ -206,7 +208,7 @@ python main.py 5 15 -t 4
 
 ### Running Log Rotation (`rotate_logs.py`)
 
-Purge records older than a specified number of days to manage MySQL table growth:
+Purge records older than a specified number of days to manage MSSQL table growth:
 
 ```bash
 python rotate_logs.py <table_index> [-d DAYS]
