@@ -51,7 +51,7 @@ def login(username: str, password: str) -> str:
     }
 
     try:
-        login_response = requests.post(FAZ_URL, json=login_payload, verify=False)
+        login_response = requests.post(FAZ_URL, json=login_payload, verify=False, proxies={"http": None, "https": None})
         login_json = login_response.json()
         
         session = login_json["session"]
@@ -78,7 +78,7 @@ def logout(session: str, username: str, password: str) -> str:
         "session": session
     }
 
-    logout_response = requests.post(FAZ_URL, json=logout_payload, verify=False)
+    logout_response = requests.post(FAZ_URL, json=logout_payload, verify=False, proxies={"http": None, "https": None})
     
     return logout_response.status_code
 
@@ -113,7 +113,7 @@ def log_search(start_datetime: str, end_datetime: str, session: str, selected_AD
         "session": session
     }
 
-    search_response = requests.post(FAZ_URL, json=search_payload, verify=False)
+    search_response = requests.post(FAZ_URL, json=search_payload, verify=False, proxies={"http": None, "https": None})
     search_json = search_response.json()
     http_status = search_response.status_code
     tid = search_json["result"]["tid"]
@@ -148,7 +148,7 @@ def check_and_fetch_page(selected_ADOM: str, tid: int, offset: int, session: str
         }
         
         time.sleep(check_interval)
-        tid_response = requests.post(FAZ_URL, json=tid_check_payload, verify=False, timeout=30)
+        tid_response = requests.post(FAZ_URL, json=tid_check_payload, verify=False, timeout=30, proxies={"http": None, "https": None})
         tid_status_json = tid_response.json()
         percentage = tid_status_json["result"].get("percentage", 0)
         current_count = tid_status_json["result"].get("total-count", last_count)
@@ -186,7 +186,7 @@ def check_and_fetch_page(selected_ADOM: str, tid: int, offset: int, session: str
         "session": session
     }
     
-    fetch_response = requests.post(FAZ_URL, json=fetch_tid_payload, verify=False)
+    fetch_response = requests.post(FAZ_URL, json=fetch_tid_payload, verify=False, proxies={"http": None, "https": None})
     fetch_json = fetch_response.json()
     
     #print(f"Fetched page at offset {offset}")
@@ -217,7 +217,7 @@ def get_total_count(selected_ADOM: str, tid: int, session: str) -> int:
         }
         
         time.sleep(check_interval)
-        check_response = requests.post(FAZ_URL, json=check_payload, verify=False)
+        check_response = requests.post(FAZ_URL, json=check_payload, verify=False, proxies={"http": None, "https": None})
         check_json = check_response.json()
         percentage = check_json["result"]["percentage"]
         #print(f"Initial page: {percentage}%")
