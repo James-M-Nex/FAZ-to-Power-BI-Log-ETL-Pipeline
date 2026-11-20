@@ -102,7 +102,7 @@ def log_search(start_datetime: str, end_datetime: str, session: str, selected_AD
             ],
             "filter": "",
             "logtype": "traffic",
-            "time-order": "asc",
+            "time-order": "desc",
             "time-range": {
               "start": start_datetime,
               "end": end_datetime
@@ -158,10 +158,10 @@ def check_and_fetch_page(selected_ADOM: str, tid: int, offset: int, session: str
             with count_lock:
                 if current_count > total_count_holder["count"]:
                     total_count_holder["count"] = current_count
-                    #print(f"Total count updated to {current_count}")
+                    print(f"Total count updated to {current_count}")
             last_count = current_count
         
-        #print(f"Page offset {offset}: {percentage}%")
+        print(f"Page offset {offset}: {percentage}%")
         poll_attempts += 1
 
         # Poll status with exponential backoff until search progress reaches 100%
@@ -189,7 +189,7 @@ def check_and_fetch_page(selected_ADOM: str, tid: int, offset: int, session: str
     fetch_response = requests.post(FAZ_URL, json=fetch_tid_payload, verify=False, proxies={"http": None, "https": None})
     fetch_json = fetch_response.json()
     
-    #print(f"Fetched page at offset {offset}")
+    print(f"Fetched page at offset {offset}")
     return {"offset": offset, "data": fetch_json}
 
 def get_total_count(selected_ADOM: str, tid: int, session: str) -> int:
@@ -220,7 +220,7 @@ def get_total_count(selected_ADOM: str, tid: int, session: str) -> int:
         check_response = requests.post(FAZ_URL, json=check_payload, verify=False, proxies={"http": None, "https": None})
         check_json = check_response.json()
         percentage = check_json["result"]["percentage"]
-        #print(f"Initial page: {percentage}%")
+        print(f"Initial page: {percentage}%")
         check_interval *= 2
     
     total_count = check_json["result"]["total-count"]
@@ -276,7 +276,7 @@ def check_and_fetch(selected_ADOM: str, tid: int, session: str, max_threads: int
                     all_logs_dict[result["offset"]] = result["data"]
                     offset = future_to_offset.pop(future)
                     completed += 1
-                    #print(f"Page at offset {result['offset']} completed and stored")
+                    print(f"Page at offset {result['offset']} completed and stored")
                     
                     # Check if total count has grown and submit new pages
                     with count_lock:
@@ -287,7 +287,7 @@ def check_and_fetch(selected_ADOM: str, tid: int, session: str, max_threads: int
                     
                     # Submit any new pages that weren't submitted yet
                     for new_offset in new_offsets - submitted_offsets:
-                        #print(f"New page discovered at offset {new_offset}, submitting...")
+                        print(f"New page discovered at offset {new_offset}, submitting...")
                         future = executor.submit(check_and_fetch_page, selected_ADOM, tid, new_offset, session, total_count_holder, count_lock)
                         future_to_offset[future] = new_offset
                         submitted_offsets.add(new_offset)
