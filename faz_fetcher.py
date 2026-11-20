@@ -197,7 +197,9 @@ def get_total_count(selected_ADOM: str, tid: int, session: str) -> int:
     Gets the total count from the first page, waiting until it reaches 100% completion.
     """
     check_interval = CHECK_INTERVAL
+    poll_attempts = 0
     percentage = 0
+    skip_flag = False
     
     # Wait until offset 0 reaches 100% before returning count
     while int(percentage) < 100:
@@ -219,12 +221,19 @@ def get_total_count(selected_ADOM: str, tid: int, session: str) -> int:
         time.sleep(check_interval)
         check_response = requests.post(FAZ_URL, json=check_payload, verify=False, proxies={"http": None, "https": None})
         check_json = check_response.json()
-        percentage = check_json["result"]["percentage"]
+        percentage = (check_json.get("result") or {}).get("percentage", 0)
         #print(f"Initial page: {percentage}%")
         check_interval *= 2
-    
-    total_count = check_json["result"]["total-count"]
-    logger.info(f"Total count: {total_count}")
+        if poll_attempts >= MAX_PAGE_POLL_ATTEMPTS:
+            skip_flag = True
+            break
+
+    if not skip_flag:
+        total_count = check_json["result"]["total-count"]
+        logger.info(f"Total count: {total_count} for ADOM: {selected_ADOM}")
+    else:
+        total_count = -1
+        logger.critical(f"Could not get inintial page count due to result.percentage in the json being missing for ADOM: {selected_ADOM}!")
     
     return total_count
 
@@ -237,73 +246,77 @@ def check_and_fetch(selected_ADOM: str, tid: int, session: str, max_threads: int
     """
     # Get initial total count to determine starting number of pages
     initial_count = get_total_count(selected_ADOM, tid, session)
-    
-    # Thread-safe container to track dynamic total count updates across worker threads
-    total_count_holder = {"count": initial_count}
-    count_lock = threading.Lock()
-    
-    # Calculate page offsets (0, 800, 1600, ...)
-    num_pages = (initial_count + PAGE_SIZE - 1) // PAGE_SIZE
-    page_offsets = set([i * PAGE_SIZE for i in range(num_pages)])
-    submitted_offsets = set()
-    
-    logger.info(f"Initial total count: {initial_count}, starting with {num_pages} pages...")
-    
-    # Fetch all pages in parallel using ThreadPoolExecutor
-    all_logs_dict = {}
-    
-    with ThreadPoolExecutor(max_workers=max_threads) as executor:
-        future_to_offset = {}
-        
-        # Submit initial pages
-        for offset in page_offsets:
-            future = executor.submit(check_and_fetch_page, selected_ADOM, tid, offset, session, total_count_holder, count_lock)
-            future_to_offset[future] = offset
-            submitted_offsets.add(offset)
-        
-        # Collect results and check for new pages as they complete
-        completed = 0
-        while completed < len(submitted_offsets):
-            try:
-                done_futures = list(as_completed(future_to_offset, timeout=60))
-            except TimeoutError:
-                # Timeout waiting for futures, continue checking
-                done_futures = []
-            
-            for future in done_futures:
-                try:
-                    result = future.result()
-                    all_logs_dict[result["offset"]] = result["data"]
-                    offset = future_to_offset.pop(future)
-                    completed += 1
-                    #print(f"Page at offset {result['offset']} completed and stored")
-                    
-                    # Check if total count has grown and submit new pages
-                    with count_lock:
-                        current_total = total_count_holder["count"]
-                    
-                    new_num_pages = (current_total + PAGE_SIZE - 1) // PAGE_SIZE
-                    new_offsets = set([i * PAGE_SIZE for i in range(new_num_pages)])
-                    
-                    # Submit any new pages that weren't submitted yet
-                    for new_offset in new_offsets - submitted_offsets:
-                        #print(f"New page discovered at offset {new_offset}, submitting...")
-                        future = executor.submit(check_and_fetch_page, selected_ADOM, tid, new_offset, session, total_count_holder, count_lock)
-                        future_to_offset[future] = new_offset
-                        submitted_offsets.add(new_offset)
-                    
-                except Exception as e:
-                    logger.warning(f"Error fetching page: {e}")
-                    future_to_offset.pop(future, None)
-                    completed += 1
-    
-    # Reconstruct all fetched JSON pages in strict offset order
-    all_logs = []
-    for offset in sorted(submitted_offsets):
-        if offset in all_logs_dict:
-            all_logs.append(all_logs_dict[offset])
-    
-    logger.info(f"All {len(all_logs)} pages fetched and ordered successfully")
 
-    return all_logs
+    if initial_count != -1:
+        # Thread-safe container to track dynamic total count updates across worker threads
+        total_count_holder = {"count": initial_count}
+        count_lock = threading.Lock()
+
+        # Calculate page offsets (0, 800, 1600, ...)
+        num_pages = (initial_count + PAGE_SIZE - 1) // PAGE_SIZE
+        page_offsets = set([i * PAGE_SIZE for i in range(num_pages)])
+        submitted_offsets = set()
+
+        logger.info(f"Initial total count: {initial_count}, starting with {num_pages} pages...")
+
+        # Fetch all pages in parallel using ThreadPoolExecutor
+        all_logs_dict = {}
+
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            future_to_offset = {}
+
+            # Submit initial pages
+            for offset in page_offsets:
+                future = executor.submit(check_and_fetch_page, selected_ADOM, tid, offset, session, total_count_holder, count_lock)
+                future_to_offset[future] = offset
+                submitted_offsets.add(offset)
+
+            # Collect results and check for new pages as they complete
+            completed = 0
+            while completed < len(submitted_offsets):
+                try:
+                    done_futures = list(as_completed(future_to_offset, timeout=60))
+                except TimeoutError:
+                    # Timeout waiting for futures, continue checking
+                    done_futures = []
+
+                for future in done_futures:
+                    try:
+                        result = future.result()
+                        all_logs_dict[result["offset"]] = result["data"]
+                        offset = future_to_offset.pop(future)
+                        completed += 1
+                        #print(f"Page at offset {result['offset']} completed and stored")
+
+                        # Check if total count has grown and submit new pages
+                        with count_lock:
+                            current_total = total_count_holder["count"]
+
+                        new_num_pages = (current_total + PAGE_SIZE - 1) // PAGE_SIZE
+                        new_offsets = set([i * PAGE_SIZE for i in range(new_num_pages)])
+
+                        # Submit any new pages that weren't submitted yet
+                        for new_offset in new_offsets - submitted_offsets:
+                            #print(f"New page discovered at offset {new_offset}, submitting...")
+                            future = executor.submit(check_and_fetch_page, selected_ADOM, tid, new_offset, session, total_count_holder, count_lock)
+                            future_to_offset[future] = new_offset
+                            submitted_offsets.add(new_offset)
+
+                    except Exception as e:
+                        logger.warning(f"Error fetching page: {e}")
+                        future_to_offset.pop(future, None)
+                        completed += 1
+
+        # Reconstruct all fetched JSON pages in strict offset order
+        all_logs = []
+        for offset in sorted(submitted_offsets):
+            if offset in all_logs_dict:
+                all_logs.append(all_logs_dict[offset])
+
+        logger.info(f"All {len(all_logs)} pages fetched and ordered successfully")
+
+        return all_logs
+
+    else:
+        return None
     
